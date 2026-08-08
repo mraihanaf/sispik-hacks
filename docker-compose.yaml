@@ -51,6 +51,20 @@ services:
       /bin/sh -c 'mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
       mc mb --ignore-existing "local/$$STORAGE_BUCKET"'
 
+  emqx:
+    image: emqx/emqx:5.8.8
+    container_name: portal-emqx
+    restart: unless-stopped
+    environment:
+      EMQX_NODE__NAME: emqx@127.0.0.1
+    ports:
+      - "${EMQX_MQTT_PORT:-1883}:1883"
+      - "${EMQX_WS_PORT:-8083}:8083"
+      - "${EMQX_DASHBOARD_PORT:-18083}:18083"
+    volumes:
+      - emqx_data:/opt/emqx/data
+
 volumes:
   postgres_data:
   minio_data:
+  emqx_data:
