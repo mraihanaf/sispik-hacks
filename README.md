@@ -1,180 +1,141 @@
-# SispikHacks
+# Rotom
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+Rotom is an IoT-assisted waste-collection operations platform. Capacity sensors and truck trackers send telemetry through MQTT; a dashboard turns that data into actionable site, fleet, route, alert, and anomaly information.
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
+## What is included
 
-## EMQX development
-
-`docker-compose.yaml` runs EMQX 5.8.8 as the local SISPik MQTT broker.
-
-| Use | Endpoint |
-| --- | --- |
-| Device and backend MQTT | `mqtt://localhost:${EMQX_MQTT_PORT:-1883}` |
-| Browser MQTT over WebSocket | `ws://localhost:${EMQX_WS_PORT:-8083}/mqtt` |
-| EMQX management dashboard | `http://localhost:${EMQX_DASHBOARD_PORT:-18083}` |
-
-Start and inspect it with:
-
-```sh
-docker compose up -d emqx
-docker compose ps emqx
-docker compose logs -f emqx
-```
-
-The dashboard credentials use `EMQX_DASHBOARD_USERNAME` and
-`EMQX_DASHBOARD_PASSWORD`; development defaults are `admin` and
-`public-development-only`. Put replacements in an untracked root `.env` before
-sharing a development environment.
-
-### Authentication strategy
-
-EMQX now requires an HMAC JWT in the MQTT password field and uses the checked-in
-ACL file for deny-by-default authorization. These identities and permissions
-are enforced:
-
-| Identity | Authentication | Allowed access |
+| Area | Location | Purpose |
 | --- | --- | --- |
-| Physical device | Per-device MQTT credential | Publish only to its own `sispik/v1/ingest/...` topics |
-| IoT ingestor | Service credential | Subscribe only to `sispik/v1/ingest/#` |
-| Dashboard backend | Service credential | Publish only to `sispik/v1/realtime/#` |
-| Dashboard user | Short-lived JWT from protected oRPC | Subscribe only to `sispik/v1/realtime/#`; never publish |
+| Operations dashboard | `apps/dashboard` | Next.js application for operators and administrators. It owns the operational data model, authentication, routes, alerts, and reports. |
+| IoT ingestor | `apps/iot-ingestor` | NestJS service that validates MQTT device messages and forwards them to the dashboard through authenticated oRPC procedures. |
+| Simulator | `apps/simulator` | Development application for simulating operational data. |
+| Shared contracts | `packages/iot-contracts` | MQTT topic helpers and Zod schemas shared by services. |
+| Firmware | `firmwares/` | PlatformIO projects for capacity-sensor and garbage-truck tracker devices. |
+| Local infrastructure | `docker-compose.yaml` | PostgreSQL, MinIO (S3-compatible storage), and EMQX MQTT broker. |
 
-Firmware `MQTT_USERNAME` must equal `DEVICE_ID`; `MQTT_PASSWORD` must be a
-pre-provisioned JWT with a short, renewable lifetime. It is not the JWT signing
-secret. Local services use the same `MQTT_JWT_SECRET` as EMQX only to mint their
-own constrained service tokens.
+See [the technical architecture](docs/TECHNICAL_ARCHITECTURE.md) for system boundaries, message flows, MQTT topics, and authorization details.
 
-Mint a device credential from the dashboard package and place its output only in
-the device's untracked `secrets.h`:
+## Prerequisites
 
-```sh
-MQTT_JWT_SECRET='...' pnpm --filter @sispik-hacks/dashboard run mqtt:mint-device-token -- SENSOR-TPS-001 720h
-```
+- Node.js 22 or later
+- pnpm
+- Docker Compose
+- PlatformIO, only when building firmware
 
-Browser MQTT is a read-only realtime projection. All browser queries and
-mutations remain on protected oRPC. Production must expose encrypted
-`wss://…/mqtt`; no browser code may contain permanent EMQX credentials.
+## Quick start
 
-### Smoke test
+1. Install dependencies.
 
-Use the authenticated application paths for local smoke tests. Anonymous
-mosquitto clients are intentionally rejected.
+   ```sh
+   pnpm install
+   ```
 
-```sh
-docker run --rm --network sispik-hacks_default eclipse-mosquitto:2 \
-  mosquitto_sub -h emqx -t 'sispik/v1/dev/smoke' -v
-```
+2. Configure the applications. Do not commit these files or real secrets.
 
-```sh
-docker run --rm --network sispik-hacks_default eclipse-mosquitto:2 \
-  mosquitto_pub -h emqx -t 'sispik/v1/dev/smoke' -m connected
-```
+   ```sh
+   cp apps/dashboard/.env.example apps/dashboard/.env
+   cp apps/iot-ingestor/.env.example apps/iot-ingestor/.env
+   ```
 
-The subscriber should print `sispik/v1/dev/smoke connected`. This topic is
-only an infrastructure smoke test; application topics remain reserved for the
-shared contracts introduced in Phase 2.
+   For local development, set the same values for `MQTT_JWT_SECRET` in both files, and set the dashboard's `IOT_INGESTOR_SERVICE_TOKEN` to the ingestor's `DASHBOARD_SERVICE_TOKEN`.
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+3. Start local services.
 
-## Generate a library
+   ```sh
+   docker compose up -d
+   docker compose ps
+   ```
 
-```sh
-npx nx g @nx/js:lib packages/pkg1 --publishable --importPath=@my-org/pkg1
-```
+4. Generate the Prisma client and apply the existing development migrations.
 
-## Run tasks
+   ```sh
+   pnpm nx run dashboard:prisma:generate
+   pnpm nx run dashboard:prisma:migrate
+   ```
 
-To build the library use:
+5. In separate terminals, start the dashboard and ingestor.
 
-```sh
-npx nx build pkg1
-```
+   ```sh
+   pnpm nx run dashboard:dev
+   pnpm nx run iot-ingestor:start:dev
+   ```
 
-To run any task with Nx use:
+   The dashboard runs at <http://localhost:3000>; the ingestor defaults to port `3001`. Use the dashboard setup page to create the initial administrator account.
 
-```sh
-npx nx <target> <project-name>
-```
+6. Optionally start the simulator.
 
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+   ```sh
+   pnpm nx run simulator:dev
+   ```
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+   It runs at <http://localhost:4200>. Enable its API in `apps/dashboard/.env` with `ENABLE_SIMULATOR_DEV_API=true` when needed.
 
-## Versioning and releasing
+## Local services
 
-To version and release the library use
+| Service | Address | Notes |
+| --- | --- | --- |
+| Dashboard | <http://localhost:3000> | Operator application |
+| IoT ingestor | <http://localhost:3001> | MQTT-to-oRPC ingestion service |
+| Simulator | <http://localhost:4200> | Optional development tool |
+| PostgreSQL | `localhost:5432` | Default database: `portal` |
+| MinIO API / console | <http://localhost:9000> / <http://localhost:9001> | S3-compatible local storage |
+| EMQX MQTT / WebSocket | `mqtt://localhost:1883` / `ws://localhost:8083/mqtt` | MQTT broker |
+| EMQX dashboard | <http://localhost:18083> | Default development login: `admin` / `public-development-only` |
 
-```
-npx nx release
-```
+The EMQX defaults are for local development only. MQTT requires JWT authentication and is deny-by-default; use the application’s authenticated paths rather than anonymous MQTT clients.
 
-Pass `--dry-run` to see what would happen without actually releasing the library.
+## Common commands
 
-[Learn more about Nx release &raquo;](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Keep TypeScript project references up to date
-
-Nx automatically updates TypeScript [project references](https://www.typescriptlang.org/docs/handbook/project-references.html) in `tsconfig.json` files to ensure they remain accurate based on your project dependencies (`import` or `require` statements). This sync is automatically done when running tasks such as `build` or `typecheck`, which require updated references to function correctly.
-
-To manually trigger the process to sync the project graph dependencies information to the TypeScript project references, run the following command:
+Run workspace tasks through Nx:
 
 ```sh
-npx nx sync
+# Inspect projects and their available targets
+pnpm nx show projects
+pnpm nx show project dashboard
+
+# Build applications and shared contracts
+pnpm nx run dashboard:build
+pnpm nx run iot-ingestor:build
+pnpm nx run @sispik-hacks/iot-contracts:build
+
+# Run tests
+pnpm nx run @sispik-hacks/iot-contracts:test
+pnpm nx run iot-ingestor:test
+pnpm nx run dashboard:test:domain
+pnpm nx run simulator-e2e:e2e
+
+# Lint a project
+pnpm nx run dashboard:lint
 ```
 
-You can enforce that the TypeScript project references are always in the correct state when running in CI by adding a step to your CI job configuration that runs the following command:
+For all available targets, run `pnpm nx show project <project-name>`.
+
+## MQTT and security model
+
+Devices publish only to their own `sispik/v1/ingest/...` topics. The ingestor validates topic identity and payload schemas before sending data to the dashboard’s internal oRPC API. The dashboard publishes normalized read-only events under `sispik/v1/realtime/...`; browser clients may subscribe but cannot publish.
+
+To mint a local device credential, use a non-production `MQTT_JWT_SECRET` and store the resulting token only in the device’s untracked `secrets.h` file:
 
 ```sh
-npx nx sync:check
+MQTT_JWT_SECRET='your-local-secret' \
+  pnpm nx run dashboard:mqtt:mint-device-token -- SENSOR-TPS-001 720h
 ```
 
-[Learn more about nx sync](https://nx.dev/reference/nx-commands#sync)
+Never place MQTT signing secrets, service tokens, or device credentials in browser code or version control.
 
-## Set up CI!
+## Firmware
 
-### Step 1
+The firmware projects live in:
 
-To connect to Nx Cloud, run the following command:
+- `firmwares/garbage-capacity-tracker` — ESP8266 and HC-SR04 capacity sensor
+- `firmwares/garbage-truck-tracker` — ESP32 GPS and RFID tracker
 
-```sh
-npx nx connect
+Copy each project’s `include/secrets.example.h` to `include/secrets.h`, fill in its device-specific credentials, then build or upload with PlatformIO from that project directory.
+
+## Architecture at a glance
+
+```text
+Sensors and truck trackers → EMQX MQTT → IoT ingestor → dashboard oRPC → PostgreSQL
+                                                     ↘
+Dashboard ← authenticated browser oRPC + read-only MQTT/WebSocket realtime events
 ```
-
-Connecting to Nx Cloud ensures a [fast and scalable CI](https://nx.dev/ci/intro/why-nx-cloud?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) pipeline. It includes features such as:
-
-- [Remote caching](https://nx.dev/ci/features/remote-cache?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task distribution across multiple machines](https://nx.dev/ci/features/distribute-task-execution?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Automated e2e test splitting](https://nx.dev/ci/features/split-e2e-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task flakiness detection and rerunning](https://nx.dev/ci/features/flaky-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-### Step 2
-
-Use the following command to configure a CI workflow for your workspace:
-
-```sh
-npx nx g ci-workflow
-```
-
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Install Nx Console
-
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
-
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Useful links
-
-Learn more:
-
-- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-And join the Nx community:
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
