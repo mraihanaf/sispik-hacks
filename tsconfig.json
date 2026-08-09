@@ -5,6 +5,15 @@
   "references": [
     {
       "path": "./apps/dashboard"
+    },
+    {
+      "path": "./packages/iot-contracts"
+    },
+    {
+      "path": "./apps/simulator-e2e"
+    },
+    {
+      "path": "./apps/simulator"
     }
   ]
 }

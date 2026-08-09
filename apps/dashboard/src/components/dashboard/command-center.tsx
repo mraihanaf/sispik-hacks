@@ -1,0 +1,47 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { AlertTriangle, Gauge, MapPinned, Recycle, Route as RouteIcon, Truck as TruckIcon } from 'lucide-react';
+import { OperationsMap } from '@/components/operations-map';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Modal } from '@/components/ui/modal';
+import { ProgressBar } from '@/components/ui/progress-bar';
+import { StatusBadge } from '@/components/ui/status-badge';
+import orpc from '@/lib/orpc/client';
+import { MetricCard } from './metric-card';
+import { PageHeader } from './page-header';
+import type { AlertRecord, Anomaly, Facility, RoutePlan, Site, Vehicle } from './types';
+import { formatRelative } from './types';
+
+function QuickDispatch({ site, vehicles, facilities, onClose, onCreated }: { site?: Site; vehicles: Vehicle[]; facilities: Facility[]; onClose: () => void; onCreated: () => void }) {
+  const [vehicleId, setVehicle] = useState(vehicles.find((item) => item.status === 'AVAILABLE')?.id ?? '');
+  const [startFacilityId, setStart] = useState(facilities.find((item) => item.type === 'DEPOT')?.id ?? facilities[0]?.id ?? '');
+  const [endFacilityId, setEnd] = useState(facilities.find((item) => item.type !== 'DEPOT')?.id ?? facilities[0]?.id ?? '');
+  const [error, setError] = useState('');
+  const dispatch = useMutation(orpc.routes.createAndAssign.mutationOptions({ onSuccess: () => { onCreated(); onClose(); }, onError: (cause) => setError(cause instanceof Error ? cause.message : 'Dispatch failed.') }));
+  const ready = Boolean(site && vehicleId && startFacilityId && endFacilityId);
+  return <Modal open={Boolean(site)} onClose={onClose} title={`Dispatch collection${site ? ` · ${site.code}` : ''}`} description="Create and assign an optimized collection route in one transaction." footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={!ready || dispatch.isPending} onClick={() => site && dispatch.mutate({ siteIds: [site.id], vehicleId, startFacilityId, endFacilityId })}>{dispatch.isPending ? 'Assigning…' : 'Create & assign route'}</Button></>}><div className="grid gap-4"><div className="rounded-lg border bg-muted/40 p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{site?.name}</p><p className="text-sm text-muted-foreground">{site?.estimatedWasteKg.toFixed(0)} kg estimated waste</p></div><span className="text-2xl font-bold text-destructive data-mono">{site?.currentCapacityPercent.toFixed(0)}%</span></div></div><label className="grid gap-1.5 text-sm font-medium">Available truck<select className="h-10 rounded-md border bg-background px-3" value={vehicleId} onChange={(event) => setVehicle(event.target.value)}><option value="">Select a truck…</option>{vehicles.filter((item) => item.status === 'AVAILABLE').map((item) => <option key={item.id} value={item.id}>{item.code} · {item.licensePlate} · {Math.max(0, item.capacityKg - item.currentLoadKg).toFixed(0)} kg free</option>)}</select></label><div className="grid gap-4 md:grid-cols-2"><label className="grid gap-1.5 text-sm font-medium">Start facility<select className="h-10 rounded-md border bg-background px-3" value={startFacilityId} onChange={(event) => setStart(event.target.value)}>{facilities.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label><label className="grid gap-1.5 text-sm font-medium">Disposal destination<select className="h-10 rounded-md border bg-background px-3" value={endFacilityId} onChange={(event) => setEnd(event.target.value)}>{facilities.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label></div>{error && <p role="alert" className="text-sm text-destructive">{error}</p>}</div></Modal>;
+}
+
+export function CommandCenter({ sites, vehicles, facilities, routes, alerts, anomalies, refresh }: { sites: Site[]; vehicles: Vehicle[]; facilities: Facility[]; routes: RoutePlan[]; alerts: AlertRecord[]; anomalies: Anomaly[]; refresh: () => void }) {
+  const [dispatchSite, setDispatchSite] = useState<Site>();
+  const [selectedRoute, setSelectedRoute] = useState<RoutePlan>();
+  const criticalSites = sites.filter((item) => item.status === 'CRITICAL').sort((a, b) => b.priorityScore - a.priorityScore);
+  const activeVehicles = vehicles.filter((item) => ['ASSIGNED', 'COLLECTING', 'RETURNING'].includes(item.status));
+  const openAnomalies = anomalies.filter((item) => !item.resolvedAt);
+  const deviation = openAnomalies.find((item) => item.type === 'ROUTE_DEVIATION');
+  const selected = selectedRoute ?? routes.find((item) => ['ASSIGNED', 'ACTIVE'].includes(item.status));
+  const averageCapacity = sites.length ? sites.reduce((sum, item) => sum + item.currentCapacityPercent, 0) / sites.length : 0;
+  const estimatedWaste = sites.reduce((sum, item) => sum + item.estimatedWasteKg, 0) / 1000;
+  const distanceSaved = routes.reduce((sum, item) => sum + item.distanceSavingsKm, 0);
+  const queue = useMemo(() => [...criticalSites, ...sites.filter((item) => item.status === 'HIGH')].slice(0, 5), [criticalSites, sites]);
+  return <><PageHeader eyebrow="Live operations" title="Command Center" description="Monitor collection risk, fleet activity, and route deviations from one operational workspace." />
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"><MetricCard label="Active trucks" value={`${activeVehicles.length} / ${vehicles.length}`} detail="Assigned or collecting" icon={TruckIcon} tone="positive" /><MetricCard label="Critical sites" value={criticalSites.length} detail="Over capacity threshold" icon={AlertTriangle} tone={criticalSites.length ? 'critical' : 'default'} /><MetricCard label="Estimated waste" value={`${estimatedWaste.toFixed(1)} t`} detail="Across monitored sites" icon={Recycle} /><MetricCard label="Average capacity" value={`${averageCapacity.toFixed(0)}%`} detail="Current sensor readings" icon={Gauge} /><MetricCard label="Distance saved" value={`${distanceSaved.toFixed(0)} km`} detail="Optimized route estimate" icon={MapPinned} tone="positive" /><MetricCard label="Route anomalies" value={openAnomalies.length} detail="Require investigation" icon={RouteIcon} tone={openAnomalies.length ? 'critical' : 'default'} /></section>
+    {deviation && <section className="flex flex-col gap-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-950 md:flex-row md:items-center"><span className="grid size-10 shrink-0 place-items-center rounded-full bg-red-100"><AlertTriangle className="size-5 text-destructive" /></span><div className="min-w-0 flex-1"><p className="font-bold">Route deviation detected · {deviation.vehicle.code}</p><p className="mt-0.5 text-sm text-red-800">{deviation.description} · Risk {deviation.riskScore.toFixed(0)}/100</p></div><Button variant="destructive" asChild><a href={`/dashboard/incidents?selected=${deviation.id}`}>Investigate incident</a></Button></section>}
+    <section className="grid min-h-[560px] gap-4 xl:grid-cols-[minmax(0,2fr)_360px]"><Card className="min-h-[520px]"><CardHeader><CardTitle>Live operations map</CardTitle><CardDescription>Click a truck, site, or anomaly to inspect it. Select an active route below to change the overlay.</CardDescription></CardHeader><CardContent className="grid gap-3"><div className="[&_.maplibregl-map]:min-h-[430px]"><OperationsMap sites={sites} facilities={facilities} vehicles={vehicles} route={selected} anomalies={openAnomalies} /></div><div className="flex gap-2 overflow-x-auto pb-1">{routes.filter((item) => ['ASSIGNED', 'ACTIVE'].includes(item.status)).slice(0, 8).map((route) => <Button size="sm" variant={selected?.id === route.id ? 'default' : 'outline'} key={route.id} onClick={() => setSelectedRoute(route)}>{route.vehicle.code} · {route.stops.length} stops</Button>)}</div></CardContent></Card><Card><CardHeader><CardTitle>Priority queue</CardTitle><CardDescription>Sites ordered by operational risk.</CardDescription></CardHeader><CardContent className="space-y-3">{queue.map((site, index) => <article key={site.id} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-bold text-muted-foreground uppercase">#{index + 1} · {site.code}</p><p className="font-semibold">{site.name}</p></div><StatusBadge status={site.status} /></div><div className="mt-3 flex items-center gap-3"><ProgressBar value={site.currentCapacityPercent} className="flex-1" /><span className="font-semibold data-mono">{site.currentCapacityPercent.toFixed(0)}%</span></div><div className="mt-2 flex items-center justify-between text-xs text-muted-foreground"><span>{site.estimatedWasteKg.toFixed(0)} kg estimated</span><span>{formatRelative(site.updatedAt)}</span></div><Button className="mt-3 w-full" size="sm" onClick={() => setDispatchSite(site)}>Assign collection</Button></article>)}{queue.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No high-priority sites right now.</div>}<div className="border-t pt-3 text-xs text-muted-foreground">{alerts.filter((item) => !item.acknowledged).length} open alerts · realtime updates enabled</div></CardContent></Card></section>
+    <QuickDispatch site={dispatchSite} vehicles={vehicles} facilities={facilities} onClose={() => setDispatchSite(undefined)} onCreated={refresh} />
+  </>;
+}
+

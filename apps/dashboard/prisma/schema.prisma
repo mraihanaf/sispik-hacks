@@ -8,16 +8,20 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  singleton     Int       @default(1) @unique
-  accounts      Account[]
-  sessions      Session[]
+  id                        String                     @id
+  name                      String
+  email                     String                     @unique
+  emailVerified             Boolean                    @default(false)
+  image                     String?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  singleton                 Int                        @unique @default(1)
+  accounts                  Account[]
+  sessions                  Session[]
+  driverVerificationReviews DriverVerificationReview[]
+  auditEvents               AuditEvent[]
+  acknowledgedAlerts        Alert[]                    @relation("AlertAcknowledgedBy")
+  resolvedAnomalies         Anomaly[]                  @relation("AnomalyResolvedBy")
 
   @@map("user")
 }
@@ -38,7 +42,7 @@ model Session {
 }
 
 model Account {
-  id                    String   @id
+  id                    String    @id
   accountId             String
   providerId            String
   userId                String
@@ -49,12 +53,12 @@ model Account {
   refreshTokenExpiresAt DateTime?
   scope                 String?
   password              String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@unique([providerId, accountId])
+  @@index([userId])
   @@map("account")
 }
 
@@ -68,4 +72,439 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+enum IoTDeviceType {
+  CAPACITY_SENSOR
+  VEHICLE_TRACKER
+}
+
+enum IoTDeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+}
+
+enum WasteSiteStatus {
+  NORMAL
+  HIGH
+  CRITICAL
+  OFFLINE
+  MAINTENANCE
+}
+
+enum FacilityType {
+  DEPOT
+  TRANSFER_STATION
+  PROCESSING_FACILITY
+  LANDFILL
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ASSIGNED
+  COLLECTING
+  RETURNING
+  OFFLINE
+  MAINTENANCE
+}
+
+enum DriverStatus {
+  AVAILABLE
+  ON_DUTY
+  OFF_DUTY
+  SUSPENDED
+}
+
+enum DriverVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum DriverVerificationDecision {
+  VERIFIED
+  REJECTED
+}
+
+enum RfidScanOutcome {
+  ROUTE_STARTED
+  ROUTE_COMPLETED
+  REJECTED_UNKNOWN_DRIVER
+  REJECTED_SUSPENDED_DRIVER
+  REJECTED_UNVERIFIED_DRIVER
+  REJECTED_NO_ACTIVE_ROUTE
+  REJECTED_PENDING_STOPS
+}
+
+enum RouteStatus {
+  DRAFT
+  ASSIGNED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum RouteStopType {
+  DEPOT
+  COLLECTION
+  TRANSFER
+  DISPOSAL
+}
+
+enum RouteStopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  SKIPPED
+}
+
+enum AnomalyType {
+  ROUTE_DEVIATION
+  PROLONGED_STOP
+  UNAUTHORIZED_STOP
+  GPS_OFFLINE
+  MISSING_DESTINATION
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum DemoDriveMode {
+  AUTOMATIC
+  MANUAL
+  PAUSED
+  STOPPED
+}
+
+model WasteSite {
+  id                     String            @id @default(cuid())
+  code                   String            @unique
+  name                   String
+  latitude               Float
+  longitude              Float
+  maxCapacityKg          Float
+  currentCapacityPercent Float             @default(0)
+  estimatedWasteKg       Float             @default(0)
+  priorityScore          Float             @default(0)
+  status                 WasteSiteStatus   @default(NORMAL)
+  lastCollectedAt        DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  devices                IoTDevice[]
+  telemetry              SiteTelemetry[]
+  routeStops             RouteStop[]
+  collections            CollectionEvent[]
+
+  @@index([status, priorityScore])
+}
+
+model Facility {
+  id              String       @id @default(cuid())
+  code            String       @unique
+  name            String
+  type            FacilityType
+  latitude        Float
+  longitude       Float
+  status          String       @default("ACTIVE")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  routeStarts     RoutePlan[]  @relation("RouteStart")
+  routeEnds       RoutePlan[]  @relation("RouteEnd")
+  routeStops      RouteStop[]
+  demoFleetStarts DemoFleet[]  @relation("DemoFleetStart")
+}
+
+model Vehicle {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  licensePlate  String              @unique
+  capacityKg    Float
+  currentLoadKg Float               @default(0)
+  status        VehicleStatus       @default(AVAILABLE)
+  lastLatitude  Float?
+  lastLongitude Float?
+  lastSeenAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  devices       IoTDevice[]
+  assignments   VehicleAssignment[]
+  locations     VehicleLocation[]
+  routes        RoutePlan[]
+  collections   CollectionEvent[]
+  anomalies     Anomaly[]
+  demoFleet     DemoFleet?
+}
+
+model Driver {
+  id                  String                     @id @default(cuid())
+  name                String
+  photoKey            String?
+  identityRef         String?                    @unique
+  status              DriverStatus               @default(AVAILABLE)
+  verificationStatus  DriverVerificationStatus   @default(PENDING)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  assignments         VehicleAssignment[]
+  rfidScans           RfidScan[]
+  startedRoutes       RoutePlan[]                @relation("RouteStartedBy")
+  completedRoutes     RoutePlan[]                @relation("RouteCompletedBy")
+  demoFleet           DemoFleet?
+  verificationReviews DriverVerificationReview[]
+}
+
+model DriverVerificationReview {
+  id         String                     @id @default(cuid())
+  driverId   String
+  reviewerId String
+  decision   DriverVerificationDecision
+  note       String?
+  createdAt  DateTime                   @default(now())
+  driver     Driver                     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  reviewer   User                       @relation(fields: [reviewerId], references: [id])
+
+  @@index([driverId, createdAt])
+}
+
+model RfidScan {
+  id          String          @id @default(cuid())
+  messageId   String
+  deviceId    String
+  vehicleId   String
+  driverId    String?
+  routePlanId String?
+  outcome     RfidScanOutcome
+  rfidUid     String
+  observedAt  DateTime
+  receivedAt  DateTime        @default(now())
+  driver      Driver?         @relation(fields: [driverId], references: [id])
+  routePlan   RoutePlan?      @relation(fields: [routePlanId], references: [id])
+
+  @@unique([deviceId, messageId])
+  @@index([vehicleId, observedAt])
+  @@index([routePlanId, observedAt])
+}
+
+model IoTDevice {
+  id               String            @id @default(cuid())
+  deviceId         String            @unique
+  mqttClientId     String            @unique
+  type             IoTDeviceType
+  status           IoTDeviceStatus   @default(OFFLINE)
+  siteId           String?
+  vehicleId        String?
+  batteryPercent   Float?
+  lastSeenAt       DateTime?
+  emptyDistanceCm  Float?
+  fullDistanceCm   Float?
+  hardwareModel    String?
+  firmwareVersion  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  site             WasteSite?        @relation(fields: [siteId], references: [id])
+  vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id])
+  siteTelemetry    SiteTelemetry[]
+  vehicleLocations VehicleLocation[]
+  demoFleet        DemoFleet?
+}
+
+model SiteTelemetry {
+  id              String    @id @default(cuid())
+  messageId       String
+  deviceId        String
+  siteId          String
+  distanceCm      Float
+  capacityPercent Float
+  batteryPercent  Float?
+  signalStrength  Int?
+  observedAt      DateTime
+  receivedAt      DateTime  @default(now())
+  device          IoTDevice @relation(fields: [deviceId], references: [id])
+  site            WasteSite @relation(fields: [siteId], references: [id])
+
+  @@unique([deviceId, messageId])
+  @@index([siteId, observedAt])
+}
+
+model VehicleLocation {
+  id         String    @id @default(cuid())
+  messageId  String
+  deviceId   String
+  vehicleId  String
+  latitude   Float
+  longitude  Float
+  speedKph   Float?
+  heading    Float?
+  observedAt DateTime
+  receivedAt DateTime  @default(now())
+  device     IoTDevice @relation(fields: [deviceId], references: [id])
+  vehicle    Vehicle   @relation(fields: [vehicleId], references: [id])
+
+  @@unique([deviceId, messageId])
+  @@index([vehicleId, observedAt])
+}
+
+model VehicleAssignment {
+  id        String    @id @default(cuid())
+  vehicleId String
+  driverId  String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id])
+  driver    Driver    @relation(fields: [driverId], references: [id])
+
+  @@index([vehicleId, active])
+}
+
+model RoutePlan {
+  id                       String      @id @default(cuid())
+  vehicleId                String
+  startedByDriverId        String?
+  completedByDriverId      String?
+  startFacilityId          String
+  endFacilityId            String
+  status                   RouteStatus @default(DRAFT)
+  estimatedDistanceKm      Float
+  estimatedDurationMinutes Int
+  baselineDistanceKm       Float
+  distanceSavingsKm        Float
+  distanceSavingsPercent   Float
+  geometry                 Json?
+  createdAt                DateTime    @default(now())
+  assignedAt               DateTime?
+  startedAt                DateTime?
+  completedAt              DateTime?
+  vehicle                  Vehicle     @relation(fields: [vehicleId], references: [id])
+  startedByDriver          Driver?     @relation("RouteStartedBy", fields: [startedByDriverId], references: [id])
+  completedByDriver        Driver?     @relation("RouteCompletedBy", fields: [completedByDriverId], references: [id])
+  startFacility            Facility    @relation("RouteStart", fields: [startFacilityId], references: [id])
+  endFacility              Facility    @relation("RouteEnd", fields: [endFacilityId], references: [id])
+  stops                    RouteStop[]
+  anomalies                Anomaly[]
+  rfidScans                RfidScan[]
+  demoDrive                DemoDrive?
+
+  @@index([vehicleId, status])
+}
+
+model RouteStop {
+  id               String            @id @default(cuid())
+  routePlanId      String
+  sequence         Int
+  siteId           String?
+  facilityId       String?
+  type             RouteStopType
+  estimatedWasteKg Float?
+  status           RouteStopStatus   @default(PENDING)
+  arrivedAt        DateTime?
+  completedAt      DateTime?
+  routePlan        RoutePlan         @relation(fields: [routePlanId], references: [id], onDelete: Cascade)
+  site             WasteSite?        @relation(fields: [siteId], references: [id])
+  facility         Facility?         @relation(fields: [facilityId], references: [id])
+  collections      CollectionEvent[]
+
+  @@unique([routePlanId, sequence])
+}
+
+model CollectionEvent {
+  id                    String     @id @default(cuid())
+  vehicleId             String
+  siteId                String
+  routeStopId           String?
+  estimatedCollectedKg  Float
+  capacityBeforePercent Float
+  capacityAfterPercent  Float
+  collectedAt           DateTime   @default(now())
+  vehicle               Vehicle    @relation(fields: [vehicleId], references: [id])
+  site                  WasteSite  @relation(fields: [siteId], references: [id])
+  routeStop             RouteStop? @relation(fields: [routeStopId], references: [id])
+}
+
+model Anomaly {
+  id             String      @id @default(cuid())
+  vehicleId      String
+  routePlanId    String?
+  type           AnomalyType
+  riskScore      Float
+  latitude       Float?
+  longitude      Float?
+  title          String
+  description    String
+  metadata       Json?
+  detectedAt     DateTime    @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolutionNote String?
+  vehicle        Vehicle     @relation(fields: [vehicleId], references: [id])
+  routePlan      RoutePlan?  @relation(fields: [routePlanId], references: [id])
+  resolvedBy     User?       @relation("AnomalyResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([vehicleId, detectedAt])
+}
+
+model Alert {
+  id                  String        @id @default(cuid())
+  severity            AlertSeverity
+  category            String
+  title               String
+  description         String
+  entityType          String
+  entityId            String
+  acknowledged        Boolean       @default(false)
+  acknowledgedAt      DateTime?
+  acknowledgedById    String?
+  acknowledgementNote String?
+  createdAt           DateTime      @default(now())
+  acknowledgedBy      User?         @relation("AlertAcknowledgedBy", fields: [acknowledgedById], references: [id])
+
+  @@index([acknowledged, createdAt])
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model DemoFleet {
+  id              String     @id @default(cuid())
+  label           String
+  vehicleId       String     @unique
+  driverId        String     @unique
+  trackerDeviceId String     @unique
+  startFacilityId String?
+  createdAt       DateTime   @default(now())
+  vehicle         Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  driver          Driver     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  trackerDevice   IoTDevice  @relation(fields: [trackerDeviceId], references: [id], onDelete: Cascade)
+  startFacility   Facility?  @relation("DemoFleetStart", fields: [startFacilityId], references: [id], onDelete: SetNull)
+  drive           DemoDrive?
+}
+
+model DemoDrive {
+  id                    String        @id @default(cuid())
+  fleetId               String        @unique
+  routePlanId           String?       @unique
+  mode                  DemoDriveMode @default(STOPPED)
+  waypointIndex         Int           @default(0)
+  speedKph              Float         @default(40)
+  controlLease          String?
+  controlLeaseExpiresAt DateTime?
+  updatedAt             DateTime      @updatedAt
+  fleet                 DemoFleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  routePlan             RoutePlan?    @relation(fields: [routePlanId], references: [id], onDelete: SetNull)
 }

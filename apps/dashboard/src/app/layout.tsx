@@ -2,8 +2,8 @@ import './global.css';
 import { Providers } from '@/components/providers';
 
 export const metadata = {
-  title: 'Dashboard',
-  description: 'SispikHacks administrator dashboard',
+  title: 'Rotom Central',
+  description: 'Municipal waste operations command center',
 };
 
 export default function RootLayout({

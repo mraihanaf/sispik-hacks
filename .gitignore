@@ -8,6 +8,10 @@ out-tsc
 # dependencies
 node_modules
 
+# Local runtime configuration and credentials
+.env
+.env.local
+
 # IDEs and editors
 /.idea
 .project
@@ -51,3 +55,4 @@ Thumbs.db
 out
 
 docs/
+test-output

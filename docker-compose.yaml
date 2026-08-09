@@ -57,12 +57,31 @@ services:
     restart: unless-stopped
     environment:
       EMQX_NODE__NAME: emqx@127.0.0.1
+      # JWT is supplied in the MQTT password. Browser tokens contain an ACL
+      # that grants subscribe-only access to sispik/v1/realtime/#.
+      EMQX_ALLOW_ANONYMOUS: "false"
+      EMQX_AUTHENTICATION__1__MECHANISM: jwt
+      EMQX_AUTHENTICATION__1__FROM: password
+      EMQX_AUTHENTICATION__1__ALGORITHM: hmac-based
+      EMQX_AUTHENTICATION__1__SECRET: ${MQTT_JWT_SECRET:-local-development-mqtt-jwt-secret-change-me}
+      EMQX_AUTHENTICATION__1__USE_JWKS: "false"
+      EMQX_AUTHORIZATION__NO_MATCH: deny
+      EMQX_AUTHORIZATION__SOURCES: '[{type = file, enable = true, path = "/opt/emqx/etc/sispik-acl.conf"}]'
+      # These protect the EMQX management dashboard, not MQTT clients.
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD_USERNAME:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public-development-only}
     ports:
       - "${EMQX_MQTT_PORT:-1883}:1883"
       - "${EMQX_WS_PORT:-8083}:8083"
       - "${EMQX_DASHBOARD_PORT:-18083}:18083"
     volumes:
       - emqx_data:/opt/emqx/data
+      - ./infra/emqx/sispik-acl.conf:/opt/emqx/etc/sispik-acl.conf:ro,z
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
 
 volumes:
   postgres_data:

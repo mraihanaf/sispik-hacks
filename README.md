@@ -4,6 +4,77 @@
 
 ✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
 
+## EMQX development
+
+`docker-compose.yaml` runs EMQX 5.8.8 as the local SISPik MQTT broker.
+
+| Use | Endpoint |
+| --- | --- |
+| Device and backend MQTT | `mqtt://localhost:${EMQX_MQTT_PORT:-1883}` |
+| Browser MQTT over WebSocket | `ws://localhost:${EMQX_WS_PORT:-8083}/mqtt` |
+| EMQX management dashboard | `http://localhost:${EMQX_DASHBOARD_PORT:-18083}` |
+
+Start and inspect it with:
+
+```sh
+docker compose up -d emqx
+docker compose ps emqx
+docker compose logs -f emqx
+```
+
+The dashboard credentials use `EMQX_DASHBOARD_USERNAME` and
+`EMQX_DASHBOARD_PASSWORD`; development defaults are `admin` and
+`public-development-only`. Put replacements in an untracked root `.env` before
+sharing a development environment.
+
+### Authentication strategy
+
+EMQX now requires an HMAC JWT in the MQTT password field and uses the checked-in
+ACL file for deny-by-default authorization. These identities and permissions
+are enforced:
+
+| Identity | Authentication | Allowed access |
+| --- | --- | --- |
+| Physical device | Per-device MQTT credential | Publish only to its own `sispik/v1/ingest/...` topics |
+| IoT ingestor | Service credential | Subscribe only to `sispik/v1/ingest/#` |
+| Dashboard backend | Service credential | Publish only to `sispik/v1/realtime/#` |
+| Dashboard user | Short-lived JWT from protected oRPC | Subscribe only to `sispik/v1/realtime/#`; never publish |
+
+Firmware `MQTT_USERNAME` must equal `DEVICE_ID`; `MQTT_PASSWORD` must be a
+pre-provisioned JWT with a short, renewable lifetime. It is not the JWT signing
+secret. Local services use the same `MQTT_JWT_SECRET` as EMQX only to mint their
+own constrained service tokens.
+
+Mint a device credential from the dashboard package and place its output only in
+the device's untracked `secrets.h`:
+
+```sh
+MQTT_JWT_SECRET='...' pnpm --filter @sispik-hacks/dashboard run mqtt:mint-device-token -- SENSOR-TPS-001 720h
+```
+
+Browser MQTT is a read-only realtime projection. All browser queries and
+mutations remain on protected oRPC. Production must expose encrypted
+`wss://…/mqtt`; no browser code may contain permanent EMQX credentials.
+
+### Smoke test
+
+Use the authenticated application paths for local smoke tests. Anonymous
+mosquitto clients are intentionally rejected.
+
+```sh
+docker run --rm --network sispik-hacks_default eclipse-mosquitto:2 \
+  mosquitto_sub -h emqx -t 'sispik/v1/dev/smoke' -v
+```
+
+```sh
+docker run --rm --network sispik-hacks_default eclipse-mosquitto:2 \
+  mosquitto_pub -h emqx -t 'sispik/v1/dev/smoke' -m connected
+```
+
+The subscriber should print `sispik/v1/dev/smoke connected`. This topic is
+only an infrastructure smoke test; application topics remain reserved for the
+shared contracts introduced in Phase 2.
+
 [Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
 
 ## Generate a library
