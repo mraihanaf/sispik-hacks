@@ -18,17 +18,20 @@ See [the technical architecture](docs/TECHNICAL_ARCHITECTURE.md) for system boun
 ## Prerequisites
 
 - Node.js 22 or later
-- pnpm
+- Corepack (bundled with supported Node.js releases) to provide the repository-pinned pnpm version
 - Docker Compose
 - PlatformIO, only when building firmware
 
 ## Quick start
 
-1. Install dependencies.
+1. Enable Corepack and install the exact locked dependency graph.
 
    ```sh
-   pnpm install
+   corepack enable
+   pnpm install --frozen-lockfile
    ```
+
+   Install automatically builds the generated entrypoint for the shared `@sispik-hacks/iot-contracts` package. Do not commit its `dist/` directory; rerun its Nx build target after changing its source outside a running dependency-aware build.
 
 2. Configure the applications. Do not commit these files or real secrets.
 

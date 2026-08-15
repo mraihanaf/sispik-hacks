@@ -3,4 +3,11 @@ packages:
   - 'apps/*'
 autoInstallPeers: true
 onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@prisma/engines'
+  - '@swc/core'
+  - 'less'
   - 'nx'
+  - 'prisma'
+  - 'sharp'
+  - 'unrs-resolver'

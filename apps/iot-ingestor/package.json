@@ -5,6 +5,16 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "nx": {
+    "targets": {
+      "build": {
+        "dependsOn": ["^build"]
+      },
+      "start:dev": {
+        "dependsOn": ["^build"]
+      }
+    }
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

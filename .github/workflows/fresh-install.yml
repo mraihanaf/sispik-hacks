@@ -1,0 +1,39 @@
+name: Fresh workspace install
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable the repository-pinned pnpm
+        run: corepack enable
+
+      - name: Install from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify shared package imports from every consumer
+        run: |
+          for app in apps/dashboard apps/iot-ingestor apps/simulator; do
+            (
+              cd "$app"
+              node --input-type=module -e "import('@sispik-hacks/iot-contracts')"
+            )
+          done
+
+      - name: Test shared contracts
+        run: pnpm nx run @sispik-hacks/iot-contracts:test
+
+      - name: Build the ingestor with workspace dependencies
+        run: pnpm nx run iot-ingestor:build

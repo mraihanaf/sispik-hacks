@@ -2,7 +2,13 @@
   "name": "@sispik-hacks/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "pnpm nx run @sispik-hacks/iot-contracts:build"
+  },
   "private": true,
   "devDependencies": {
     "@eslint/js": "^9.8.0",
