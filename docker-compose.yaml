@@ -57,14 +57,9 @@ services:
     restart: unless-stopped
     environment:
       EMQX_NODE__NAME: emqx@127.0.0.1
-      # JWT is supplied in the MQTT password. Browser tokens contain an ACL
-      # that grants subscribe-only access to sispik/v1/realtime/#.
-      EMQX_ALLOW_ANONYMOUS: "false"
-      EMQX_AUTHENTICATION__1__MECHANISM: jwt
-      EMQX_AUTHENTICATION__1__FROM: password
-      EMQX_AUTHENTICATION__1__ALGORITHM: hmac-based
-      EMQX_AUTHENTICATION__1__SECRET: ${MQTT_JWT_SECRET:-local-development-mqtt-jwt-secret-change-me}
-      EMQX_AUTHENTICATION__1__USE_JWKS: "false"
+      # Development-only: permit clients to connect without validating a JWT.
+      # Topic access remains constrained by sispik-acl.conf below.
+      EMQX_ALLOW_ANONYMOUS: "true"
       EMQX_AUTHORIZATION__NO_MATCH: deny
       EMQX_AUTHORIZATION__SOURCES: '[{type = file, enable = true, path = "/opt/emqx/etc/sispik-acl.conf"}]'
       # These protect the EMQX management dashboard, not MQTT clients.
